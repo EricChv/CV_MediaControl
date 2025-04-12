@@ -3,55 +3,59 @@ import mediapipe as mp  # MediaPipe for hand tracking
 import time  # Time module for calculating FPS
 
 # Initialize webcam capture
-cap = cv2.VideoCapture(0)
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)  # Set video frame width to 640 pixels
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)  # Set video frame height to 480 pixels
+video_capture = cv2.VideoCapture(0)
+video_capture.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+video_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
 # Initialize MediaPipe Hand Tracking
-mpHands = mp.solutions.hands  # Load the hand tracking module
-hands = mpHands.Hands()  # Create an instance of Hands (defaults to using RGB images)
-mpDraw = mp.solutions.drawing_utils  # Utility for drawing hand landmarks
+mp_hands = mp.solutions.hands
+hand_detector = mp_hands.Hands()
+mp_drawing = mp.solutions.drawing_utils
 
 # Variables to calculate Frames Per Second (FPS)
-pTime = 0  # Previous time
-cTime = 0  # Current time
+prev_time = 0
+curr_time = 0
 
 while True:
-    success, img = cap.read()  # Capture a frame from the webcam
-    imgRGB = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)  # Convert frame to RGB (MediaPipe requires RGB format)
-    results = hands.process(imgRGB)  # Process the RGB frame to detect hands
+    success, frame = video_capture.read()
+    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    detection_results = hand_detector.process(frame_rgb)
 
-    # Check if hands are detected
-    if results.multi_hand_landmarks:
-        for handLms in results.multi_hand_landmarks:  # Loop through detected hands
-            for id, lm in enumerate(handLms.landmark):  # Loop through hand landmarks
-                # Extract the pixel coordinates of the landmark
-                h, w, c = img.shape  # Get image dimensions (height, width, channels)
-                cx, cy = int(lm.x * w), int(lm.y * h)  # Convert normalized coordinates to pixel values
-                print(id, cx, cy)  # Print landmark ID and its pixel coordinates
-                
-                # If landmark ID is 4 (thumb tip), draw a circle at its position
-                if id == 4: 
-                    cv2.circle(img, (cx, cy), 10, (255, 124, 23), cv2.FILLED)
+    if detection_results.multi_hand_landmarks:
+        for hand_landmarks in detection_results.multi_hand_landmarks:
+            for landmark_id, landmark in enumerate(hand_landmarks.landmark):
+                frame_height, frame_width, _ = frame.shape
+                pixel_x = int(landmark.x * frame_width)
+                pixel_y = int(landmark.y * frame_height)
 
-            # Draw hand landmarks and connections on the frame
-            mpDraw.draw_landmarks(img, handLms, mpHands.HAND_CONNECTIONS)
-    
-    # Calculate FPS
-    cTime = time.time()
-    fps = 1 / (cTime - pTime)  # FPS formula
-    pTime = cTime  # Update previous time
+                # Simple pinch detection between thumb tip (4) and index tip (8)
+                thumb_tip = hand_landmarks.landmark[4]
+                index_tip = hand_landmarks.landmark[8]
+                pinch_distance = ((thumb_tip.x - index_tip.x) ** 2 + (thumb_tip.y - index_tip.y) ** 2) ** 0.5
 
-    # Display FPS on the frame
-    cv2.putText(img, str(int(fps)), (10, 79), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                if pinch_distance < 0.05:
+                    cv2.putText(frame, "Pinch Detected", (200, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 3)
 
-    # Show the frame with landmarks and FPS
-    cv2.imshow("Image", img)
+                # Index finger Y controls vertical bar height
+                if landmark_id == 8:
+                    normalized_y = landmark.y
+                    bar_height = int((1 - normalized_y) * 300)
 
-    # Press 'q' to exit the loop and close the webcam feed
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
+                    bar_x, bar_y = 50, 400
+                    cv2.rectangle(frame, (bar_x, bar_y - bar_height), (bar_x + 50, bar_y), (0, 255, 0), cv2.FILLED)
 
-# Release the webcam and close OpenCV windows
-cap.release()
-cv2.destroyAllWindows()
+                    cv2.putText(frame, f"{int((1 - normalized_y) * 100)}%", (bar_x, bar_y + 30),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
+            # Draw landmarks and connections
+            mp_drawing.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+
+    # Calculate and display FPS
+    curr_time = time.time()
+    fps = 1 / (curr_time - prev_time)
+    prev_time = curr_time
+    cv2.putText(frame, str(int(fps)), (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+
+    # Show the frame
+    cv2.imshow("Hand Tracking", frame)
+    cv2.waitKey(1)
